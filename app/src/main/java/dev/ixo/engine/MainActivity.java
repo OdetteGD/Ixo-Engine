@@ -30,7 +30,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     private boolean rendererStarted = false;
 
     private static native String nativeRendererStatus();
-    private static native boolean nativeSurfaceCreated(android.view.Surface surface);
+    private static native boolean nativeSurfaceCreated(android.view.Surface surface, android.content.res.AssetManager assets);
     private static native void nativeSurfaceChanged(int width, int height);
     private static native void nativeSurfaceDestroyed();
     static { System.loadLibrary("ixo_engine"); }
@@ -146,7 +146,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
     }
 
     @Override public void surfaceCreated(SurfaceHolder holder) {
-        rendererStarted = nativeSurfaceCreated(holder.getSurface());
+        rendererStarted = nativeSurfaceCreated(holder.getSurface(), getAssets());
         status.setText("Project: IxoProject\n" + (rendererStarted
             ? "Vulkan device + Android surface ready; creating swapchain…"
             : "Vulkan surface initialization failed. Check native logcat."));
