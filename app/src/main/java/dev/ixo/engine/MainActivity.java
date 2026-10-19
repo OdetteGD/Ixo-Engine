@@ -16,12 +16,16 @@ import android.widget.Toast;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 public final class MainActivity extends Activity implements SurfaceHolder.Callback {
     private EditText editor;
     private TextView status;
     private File projectDir;
     private File scriptFile;
+    private File sceneFile;
+    private TextView sceneTree;
     private SurfaceView viewport;
     private boolean rendererStarted = false;
 
@@ -39,6 +43,8 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         File scripts = new File(projectDir, "Scripts");
         scripts.mkdirs();
         scriptFile = new File(scripts, "Player.Ixo.scripting");
+        sceneFile = new File(projectDir, "Main.IxoScene");
+        if (!sceneFile.exists()) saveScene(defaultScene());
         if (!scriptFile.exists()) {
             try (FileOutputStream out = new FileOutputStream(scriptFile)) {
                 out.write(("-- Ixo scripting: Lua syntax\n" +
@@ -81,6 +87,18 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
         int viewportHeight = (int) (180 * getResources().getDisplayMetrics().density);
         root.addView(viewport, new LinearLayout.LayoutParams(-1, viewportHeight));
 
+        TextView treeLabel = new TextView(this);
+        treeLabel.setText("SCENE TREE  •  Main.IxoScene");
+        treeLabel.setTextColor(0xFF9CC7FF);
+        treeLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        root.addView(treeLabel);
+        sceneTree = new TextView(this);
+        sceneTree.setTextColor(0xFFE5ECF7);
+        sceneTree.setTextSize(12);
+        sceneTree.setPadding(8, 4, 8, 4);
+        root.addView(sceneTree);
+        refreshSceneTree();
+
         TextView path = new TextView(this);
         path.setText("res://Scripts/Player.Ixo.scripting");
         path.setTextColor(0xFF7DE0C3);
@@ -93,9 +111,7 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
             b.setText(node);
             b.setTextSize(10);
             b.setOnClickListener(v -> {
-                String line = "-- Add node: " + node + "\n";
-                int at = editor.getSelectionStart();
-                editor.getText().insert(Math.max(0, at), line);
+                addSceneNode(node);
             });
             nodes.addView(b, new LinearLayout.LayoutParams(0, -2, 1));
         }
@@ -154,6 +170,97 @@ public final class MainActivity extends Activity implements SurfaceHolder.Callba
             rendererStarted = false;
         }
         super.onDestroy();
+    }
+
+
+    private JSONObject defaultScene() {
+        JSONObject scene = new JSONObject();
+        try {
+            scene.put("format", "ixo-scene");
+            scene.put("version", 1);
+            scene.put("name", "Main");
+            JSONArray nodes = new JSONArray();
+            nodes.put(new JSONObject().put("name", "World").put("type", "Node3D").put("parent", JSONObject.NULL));
+            nodes.put(new JSONObject().put("name", "Camera3D").put("type", "Camera3D").put("parent", "World").put("current", true));
+            nodes.put(new JSONObject().put("name", "DirectionalLight3D").put("type", "DirectionalLight3D").put("parent", "World"));
+            nodes.put(new JSONObject().put("name", "Ground").put("type", "MeshInstance3D").put("parent", "World").put("mesh", "PlaneMesh"));
+            scene.put("nodes", nodes);
+        } catch (Exception ignored) { }
+        return scene;
+    }
+
+    private JSONObject loadScene() {
+        try {
+            byte[] bytes = java.nio.file.Files.readAllBytes(sceneFile.toPath());
+            return new JSONObject(new String(bytes, StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            return defaultScene();
+        }
+    }
+
+    private void saveScene(JSONObject scene) {
+        try (FileOutputStream out = new FileOutputStream(sceneFile)) {
+            out.write((scene.toString(2) + "\n").getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            Toast.makeText(this, "Scene save failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void addSceneNode(String buttonName) {
+        String type;
+        switch (buttonName) {
+            case "Camera3D": type = "Camera3D"; break;
+            case "Mesh3D": type = "MeshInstance3D"; break;
+            case "Light3D": type = "DirectionalLight3D"; break;
+            default: type = "Node3D"; break;
+        }
+        JSONObject scene = loadScene();
+        try {
+            JSONArray nodes = scene.optJSONArray("nodes");
+            if (nodes == null) nodes = new JSONArray();
+            String base = type;
+            int suffix = 2;
+            String name = base;
+            boolean duplicate = true;
+            while (duplicate) {
+                duplicate = false;
+                for (int i = 0; i < nodes.length(); i++) {
+                    if (name.equals(nodes.getJSONObject(i).optString("name"))) {
+                        duplicate = true;
+                        name = base + suffix++;
+                        break;
+                    }
+                }
+            }
+            JSONObject node = new JSONObject();
+            node.put("name", name);
+            node.put("type", type);
+            node.put("parent", "World");
+            if ("Camera3D".equals(type)) node.put("current", false);
+            if ("MeshInstance3D".equals(type)) node.put("mesh", "BoxMesh");
+            nodes.put(node);
+            scene.put("nodes", nodes);
+            saveScene(scene);
+            refreshSceneTree();
+            Toast.makeText(this, "Added " + name + " to Main.IxoScene", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Node creation failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void refreshSceneTree() {
+        if (sceneTree == null) return;
+        JSONObject scene = loadScene();
+        JSONArray nodes = scene.optJSONArray("nodes");
+        StringBuilder tree = new StringBuilder();
+        if (nodes != null) {
+            for (int i = 0; i < nodes.length(); i++) {
+                JSONObject node = nodes.optJSONObject(i);
+                if (node != null) tree.append("  └ ").append(node.optString("name", "Unnamed"))
+                    .append("  [").append(node.optString("type", "Node3D")).append("]\n");
+            }
+        }
+        sceneTree.setText(tree.toString());
     }
 
     private void saveScript() {
