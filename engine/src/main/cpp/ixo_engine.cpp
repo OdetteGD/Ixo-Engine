@@ -41,6 +41,10 @@ bool ok(VkResult r, const char* what) {
 void destroySwapchainResources() {
     if (g.device == VK_NULL_HANDLE) return;
     vkDeviceWaitIdle(g.device);
+    if(g.pipeline)vkDestroyPipeline(g.device,g.pipeline,nullptr); g.pipeline=VK_NULL_HANDLE;
+    if(g.pipelineLayout)vkDestroyPipelineLayout(g.device,g.pipelineLayout,nullptr); g.pipelineLayout=VK_NULL_HANDLE;
+    if(g.vertexBuffer)vkDestroyBuffer(g.device,g.vertexBuffer,nullptr); g.vertexBuffer=VK_NULL_HANDLE;
+    if(g.vertexMemory)vkFreeMemory(g.device,g.vertexMemory,nullptr); g.vertexMemory=VK_NULL_HANDLE;
     if (g.acquired) vkDestroySemaphore(g.device, g.acquired, nullptr);
     if (g.rendered) vkDestroySemaphore(g.device, g.rendered, nullptr);
     g.acquired = g.rendered = VK_NULL_HANDLE;
@@ -228,6 +232,7 @@ bool createSwapchain(uint32_t width, uint32_t height) {
     VkSemaphoreCreateInfo sem{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     if (!ok(vkCreateSemaphore(g.device, &sem, nullptr, &g.acquired), "create acquire semaphore")) return false;
     if (!ok(vkCreateSemaphore(g.device, &sem, nullptr, &g.rendered), "create render semaphore")) return false;
+    if (!createPipeline()) { IXO_LOGE("Mesh graphics pipeline creation failed; shader assets missing or incompatible"); return false; }
     g.ready = true;
     return true;
 }
@@ -245,13 +250,22 @@ void renderFrame() {
     vkResetCommandBuffer(cmd, 0);
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     if (!ok(vkBeginCommandBuffer(cmd, &begin), "begin frame command buffer")) return;
-    // Real Vulkan render pass: clear the swapchain image. No Android UI color API is used here.
+    // Native Vulkan draw: procedural XZ grid plus colored cube mesh.
     VkClearValue clear{};
     clear.color = {{0.035f, 0.055f, 0.09f, 1.0f}};
     VkRenderPassBeginInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     pass.renderPass = g.renderPass; pass.framebuffer = g.framebuffers[index];
     pass.renderArea.extent = g.extent; pass.clearValueCount = 1; pass.pClearValues = &clear;
     vkCmdBeginRenderPass(cmd, &pass, VK_SUBPASS_CONTENTS_INLINE);
+    VkViewport viewport{0.0f,0.0f,(float)g.extent.width,(float)g.extent.height,0.0f,1.0f};
+    VkRect2D scissor{{0,0},g.extent};
+    vkCmdSetViewport(cmd,0,1,&viewport); vkCmdSetScissor(cmd,0,1,&scissor);
+    vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,g.pipeline);
+    VkDeviceSize offset=0; vkCmdBindVertexBuffers(cmd,0,1,&g.vertexBuffer,&offset);
+    Mat4 camera=mul(proj(1.04719755f,(float)g.extent.width/(float)g.extent.height,0.1f,100.0f),view());
+    Mat4 model=identity(); uint8_t push[128]; std::memcpy(push,camera.v,64);std::memcpy(push+64,model.v,64);
+    vkCmdPushConstants(cmd,g.pipelineLayout,VK_SHADER_STAGE_VERTEX_BIT,0,128,push);
+    vkCmdDraw(cmd,g.vertexCount,1,0,0);
     vkCmdEndRenderPass(cmd);
     if (!ok(vkEndCommandBuffer(cmd), "end frame command buffer")) return;
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -297,7 +311,8 @@ Java_dev_ixo_engine_MainActivity_nativeRendererStatus(JNIEnv* env, jclass) {
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_dev_ixo_engine_MainActivity_nativeSurfaceCreated(JNIEnv* env, jclass, jobject surface) {
+Java_dev_ixo_engine_MainActivity_nativeSurfaceCreated(JNIEnv* env, jclass, jobject surface, jobject assetManager) {
+    g.assets = AAssetManager_fromJava(env, assetManager);
     shutdownRenderer();
     g.window = ANativeWindow_fromSurface(env, surface);
     if (!g.window) return JNI_FALSE;
