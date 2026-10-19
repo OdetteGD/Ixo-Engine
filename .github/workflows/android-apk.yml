@@ -37,6 +37,15 @@ jobs:
           packages: 'platform-tools'
       - name: Install Android build tools
         run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+      - name: Install Vulkan shader compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y glslc
+      - name: Compile and validate Vulkan shaders
+        run: |
+          mkdir -p app/src/main/assets/ixo/shaders
+          glslc engine/src/main/shaders/mesh.vert -o app/src/main/assets/ixo/shaders/mesh.vert.spv
+          glslc engine/src/main/shaders/mesh.frag -o app/src/main/assets/ixo/shaders/mesh.frag.spv
       - name: Build debug APK
         run: gradle --no-daemon --stacktrace assembleDebug
       - name: Upload APK
