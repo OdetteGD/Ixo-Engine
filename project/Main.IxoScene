@@ -1,11 +1,14 @@
 {
   "format": "ixo-scene",
-  "version": 1,
+  "version": 2,
   "name": "Main",
+  "environment": { "background": [0.035, 0.055, 0.09], "grid": true },
+  "camera": { "position": [5.0, 4.0, 7.0], "target": [0.0, 0.0, 0.0], "fovDegrees": 60.0, "near": 0.1, "far": 100.0 },
   "nodes": [
-    {"name": "World", "type": "Node3D", "parent": null},
-    {"name": "Camera3D", "type": "Camera3D", "parent": "World", "current": true},
-    {"name": "DirectionalLight3D", "type": "DirectionalLight3D", "parent": "World"},
-    {"name": "Ground", "type": "MeshInstance3D", "parent": "World", "mesh": "PlaneMesh"}
+    { "name": "World", "type": "Node3D", "parent": null, "position": [0,0,0], "rotation": [0,0,0], "scale": [1,1,1] },
+    { "name": "Camera3D", "type": "Camera3D", "parent": "World", "current": true, "position": [5,4,7], "target": [0,0,0] },
+    { "name": "DirectionalLight3D", "type": "DirectionalLight3D", "parent": "World", "rotation": [-45,-35,0], "energy": 1.0 },
+    { "name": "Ground", "type": "MeshInstance3D", "parent": "World", "mesh": "PlaneMesh", "position": [0,-0.03,0], "scale": [1,1,1], "material": { "color": [0.16,0.2,0.27] } },
+    { "name": "TestCube", "type": "MeshInstance3D", "parent": "World", "mesh": "BoxMesh", "position": [0,0.65,0], "scale": [1,1,1], "material": { "color": [0.25,0.72,0.92] } }
   ]
 }
