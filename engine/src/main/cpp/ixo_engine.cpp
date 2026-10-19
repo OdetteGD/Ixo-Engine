@@ -26,6 +26,12 @@ struct Renderer {
     VkFormat format = VK_FORMAT_UNDEFINED;
     VkExtent2D extent{};
     VkRenderPass renderPass = VK_NULL_HANDLE;
+    VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    VkBuffer vertexBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory vertexMemory = VK_NULL_HANDLE;
+    uint32_t vertexCount = 0;
+    AAssetManager* assets = nullptr;
     std::vector<VkImageView> views;
     std::vector<VkFramebuffer> framebuffers;
     VkCommandPool commandPool = VK_NULL_HANDLE;
