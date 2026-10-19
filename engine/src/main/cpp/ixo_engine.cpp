@@ -9,6 +9,11 @@
 #include <algorithm>
 #include <string>
 #include <vector>
+extern "C" {
+#include "lua.h"
+#include "lauxlib.h"
+#include "lualib.h"
+}
 
 #define IXO_LOGI(...) __android_log_print(ANDROID_LOG_INFO, "IxoEngine", __VA_ARGS__)
 #define IXO_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "IxoEngine", __VA_ARGS__)
@@ -32,6 +37,7 @@ struct Renderer {
     VkDeviceMemory vertexMemory = VK_NULL_HANDLE;
     uint32_t vertexCount = 0;
     AAssetManager* assets = nullptr;
+    lua_State* lua = nullptr;
     std::vector<VkImageView> views;
     std::vector<VkFramebuffer> framebuffers;
     VkCommandPool commandPool = VK_NULL_HANDLE;
@@ -50,6 +56,11 @@ Mat4 view(){Mat4 m{};float ex=5,ey=4,ez=7;float fx=-5/9.0f,fy=-3.55f/9.0f,fz=-7/
 uint32_t memType(uint32_t bits,VkMemoryPropertyFlags flags){VkPhysicalDeviceMemoryProperties p{};vkGetPhysicalDeviceMemoryProperties(g.physical,&p);for(uint32_t i=0;i<p.memoryTypeCount;i++)if((bits&(1u<<i))&&(p.memoryTypes[i].propertyFlags&flags)==flags)return i;return UINT32_MAX;}
 std::vector<uint32_t> loadShader(const char* path){if(!g.assets)return {};AAsset*a=AAssetManager_open(g.assets,path,AASSET_MODE_BUFFER);if(!a)return {};size_t n=AAsset_getLength(a);std::vector<uint32_t> v((n+3)/4);int got=AAsset_read(a,v.data(),n);AAsset_close(a);if(got!=(int)n)return {};return v;}
 VkShaderModule shader(const char* path){auto code=loadShader(path);if(code.empty())return VK_NULL_HANDLE;VkShaderModuleCreateInfo i{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};i.codeSize=code.size()*4;i.pCode=code.data();VkShaderModule m{};if(vkCreateShaderModule(g.device,&i,nullptr,&m)!=VK_SUCCESS)return VK_NULL_HANDLE;return m;}
+
+int luaPrint(lua_State* L){int n=lua_gettop(L);std::string line;for(int i=1;i<=n;i++){size_t len=0;const char* s=luaL_tolstring(L,i,&len);if(i>1)line+="\\t";if(s)line.append(s,len);lua_pop(L,1);}IXO_LOGI("[Lua] %s",line.c_str());return 0;}
+bool initLua(){if(g.lua)lua_close(g.lua);g.lua=luaL_newstate();if(!g.lua)return false;luaL_openlibs(g.lua);lua_pushcfunction(g.lua,luaPrint);lua_setglobal(g.lua,"print");return true;}
+bool runLuaScript(const char* source,size_t length,const char* name){if(!g.lua&&!initLua())return false;if(luaL_loadbuffer(g.lua,source,length,name)!=LUA_OK){IXO_LOGE("Lua compile: %s",lua_tostring(g.lua,-1));lua_pop(g.lua,1);return false;}if(lua_pcall(g.lua,0,LUA_MULTRET,0)!=LUA_OK){IXO_LOGE("Lua runtime: %s",lua_tostring(g.lua,-1));lua_pop(g.lua,1);return false;}lua_settop(g.lua,0);return true;}
+
 std::vector<Vertex> world(){std::vector<Vertex> v;auto line=[&](float x,float z,float X,float Z,float r,float gg,float b){float e=0.012f;Vertex a{x-e,0,z,r,gg,b},bb{x+e,0,z,r,gg,b},cc{X+e,0,Z,r,gg,b},d{X-e,0,Z,r,gg,b};v.insert(v.end(),{a,bb,cc,a,cc,d});};for(int i=-10;i<=10;i++){float t=(float)i;bool q=i%5==0;line(t,-10,t,10,q?.25f:.10f,q?.38f:.17f,q?.5f:.24f);line(-10,t,10,t,q?.25f:.10f,q?.38f:.17f,q?.5f:.24f);}Vertex p[8]={{-.7f,0,-.7f,.2f,.7f,.95f},{.7f,0,-.7f,.2f,.7f,.95f},{.7f,1.4f,-.7f,.2f,.7f,.95f},{-.7f,1.4f,-.7f,.2f,.7f,.95f},{-.7f,0,.7f,.2f,.7f,.95f},{.7f,0,.7f,.2f,.7f,.95f},{.7f,1.4f,.7f,.2f,.7f,.95f},{-.7f,1.4f,.7f,.2f,.7f,.95f}};int f[36]={0,1,2,0,2,3,5,4,7,5,7,6,4,0,3,4,3,7,1,5,6,1,6,2,3,2,6,3,6,7,4,5,1,4,1,0};for(int i:f)v.push_back(p[i]);return v;}
 bool createPipeline(){auto vs=shader("ixo/shaders/mesh.vert.spv"),fs=shader("ixo/shaders/mesh.frag.spv");if(!vs||!fs){IXO_LOGE("Cannot load compiled shaders from APK assets");return false;}VkPipelineShaderStageCreateInfo st[2]{};st[0]={VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};st[0].stage=VK_SHADER_STAGE_VERTEX_BIT;st[0].module=vs;st[0].pName="main";st[1]={VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};st[1].stage=VK_SHADER_STAGE_FRAGMENT_BIT;st[1].module=fs;st[1].pName="main";VkVertexInputBindingDescription b{0,sizeof(Vertex),VK_VERTEX_INPUT_RATE_VERTEX};VkVertexInputAttributeDescription a[2]={{0,0,VK_FORMAT_R32G32B32_SFLOAT,0},{1,0,VK_FORMAT_R32G32B32_SFLOAT,12}};VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};vi.vertexBindingDescriptionCount=1;vi.pVertexBindingDescriptions=&b;vi.vertexAttributeDescriptionCount=2;vi.pVertexAttributeDescriptions=a;VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};ia.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};vp.viewportCount=1;vp.scissorCount=1;VkDynamicState dynStates[2]={VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR};VkPipelineDynamicStateCreateInfo dyn{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};dyn.dynamicStateCount=2;dyn.pDynamicStates=dynStates;VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};rs.polygonMode=VK_POLYGON_MODE_FILL;rs.cullMode=VK_CULL_MODE_NONE;rs.lineWidth=1;VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};ms.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT;VkPipelineColorBlendAttachmentState ba{};ba.colorWriteMask=15;VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};cb.attachmentCount=1;cb.pAttachments=&ba;VkPushConstantRange pc{VK_SHADER_STAGE_VERTEX_BIT,0,128};VkPipelineLayoutCreateInfo li{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};li.pushConstantRangeCount=1;li.pPushConstantRanges=&pc;if(vkCreatePipelineLayout(g.device,&li,nullptr,&g.pipelineLayout)!=VK_SUCCESS)return false;VkGraphicsPipelineCreateInfo pi{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};pi.stageCount=2;pi.pStages=st;pi.pVertexInputState=&vi;pi.pInputAssemblyState=&ia;pi.pViewportState=&vp;pi.pRasterizationState=&rs;pi.pMultisampleState=&ms;pi.pColorBlendState=&cb;pi.pDynamicState=&dyn;pi.layout=g.pipelineLayout;pi.renderPass=g.renderPass;bool good=vkCreateGraphicsPipelines(g.device,VK_NULL_HANDLE,1,&pi,nullptr,&g.pipeline)==VK_SUCCESS;vkDestroyShaderModule(g.device,vs,nullptr);vkDestroyShaderModule(g.device,fs,nullptr);if(!good)return false;auto vertices=world();g.vertexCount=(uint32_t)vertices.size();VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};bi.size=vertices.size()*sizeof(Vertex);bi.usage=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;bi.sharingMode=VK_SHARING_MODE_EXCLUSIVE;if(vkCreateBuffer(g.device,&bi,nullptr,&g.vertexBuffer)!=VK_SUCCESS)return false;VkMemoryRequirements mr{};vkGetBufferMemoryRequirements(g.device,g.vertexBuffer,&mr);uint32_t mt=memType(mr.memoryTypeBits,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);if(mt==UINT32_MAX)return false;VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};ai.allocationSize=mr.size;ai.memoryTypeIndex=mt;if(vkAllocateMemory(g.device,&ai,nullptr,&g.vertexMemory)!=VK_SUCCESS)return false;vkBindBufferMemory(g.device,g.vertexBuffer,g.vertexMemory,0);void* mapped=nullptr;vkMapMemory(g.device,g.vertexMemory,0,bi.size,0,&mapped);std::memcpy(mapped,vertices.data(),(size_t)bi.size);vkUnmapMemory(g.device,g.vertexMemory);return true;}
 
@@ -368,4 +379,13 @@ Java_dev_ixo_engine_MainActivity_nativeSurfaceChanged(JNIEnv*, jclass, jint widt
 extern "C" JNIEXPORT void JNICALL
 Java_dev_ixo_engine_MainActivity_nativeSurfaceDestroyed(JNIEnv*, jclass) {
     shutdownRenderer();
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_ixo_engine_MainActivity_nativeRunLua(JNIEnv* env,jclass,jstring script){
+    const char* text=env->GetStringUTFChars(script,nullptr);
+    if(!text)return JNI_FALSE;
+    bool result=runLuaScript(text,std::strlen(text),"@Player.Ixo.scripting");
+    env->ReleaseStringUTFChars(script,text);
+    return result?JNI_TRUE:JNI_FALSE;
 }
