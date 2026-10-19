@@ -1,0 +1,23 @@
+project:
+  name: IxoProject
+  version: 0.1.0
+  entry_scene: project/Main.IxoScene
+  script_extension: .Ixo.scripting
+  script_runtime: LuaJIT
+  renderer: Vulkan
+  target_platforms:
+    - android-arm64-v8a
+
+physics:
+  provider: Box2D
+  version: 3.1.1
+  enabled_by_default: false
+  cmake_option: IXO_FETCH_BOX2D
+  notes: Enable only after the Box2D native dependency is included in the Android build.
+
+paths:
+  scenes: project/
+  scripts: project/Scripts/
+  assets: assets/
+  imports: .ixo/imported/
+  exports: build/exports/

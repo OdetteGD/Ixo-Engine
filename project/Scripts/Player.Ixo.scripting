@@ -1,0 +1,10 @@
+-- Ixo Engine script convention (Lua syntax)
+-- Current editor stores .Ixo.scripting files; VM binding is a roadmap item.
+
+function on_ready(self)
+    print("Player ready")
+end
+
+function on_update(self, delta)
+    -- Example: self.position.x = self.position.x + delta
+end
